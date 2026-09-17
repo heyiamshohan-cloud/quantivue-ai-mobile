@@ -1,0 +1,1 @@
+# No checksums generated: APK/AAB build was blocked because the agent container has no JDK, Gradle, Android SDK, or Android build tools.
