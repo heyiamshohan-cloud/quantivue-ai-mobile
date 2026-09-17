@@ -61,6 +61,7 @@ class CandleSequenceTracker(private val candlePeriodMillis: Long = 60_000L) {
         val prior = lastRunning
         val elapsed = if (prior == null) 0L else (now - prior.startedAtMillis).coerceAtLeast(0L)
         val state = when {
+            prior == null || newVisualCandle -> CandleState.OPEN
             elapsed < candlePeriodMillis * .72 -> CandleState.DEVELOPING
             elapsed < candlePeriodMillis * 1.05 -> CandleState.CLOSING
             else -> CandleState.OPEN

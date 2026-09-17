@@ -2,6 +2,7 @@ package com.merqo.quantivue.core
 
 /** Applies temporal hysteresis so a valid direction cannot flicker on every sampled frame. */
 class SignalLifecycleManager(private val confirmationsRequired: Int = 2) {
+    init { require(confirmationsRequired >= 1) }
     private var candidate: Direction = Direction.NO_TRADE
     private var candidateCount = 0
     private var active: Direction = Direction.NO_TRADE

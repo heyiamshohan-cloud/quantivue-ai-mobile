@@ -65,6 +65,7 @@ class PredictionPipelineTest {
         val tracker = CandleSequenceTracker()
         val first = tracker.update((0 until 14).map { detected(it * 18, it % 2 == 0) }, roi, 0)
         assertEquals(13L, first.running?.index)
+        assertEquals(CandleState.OPEN, first.running?.state)
         assertEquals(13, first.confirmed.size)
         val second = tracker.update((0 until 15).map { detected(it * 18, it % 2 == 0) }, roi, 60_000)
         assertEquals(14L, second.running?.index)
