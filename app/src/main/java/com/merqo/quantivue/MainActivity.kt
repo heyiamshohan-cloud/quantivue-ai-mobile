@@ -2,6 +2,7 @@ package com.merqo.quantivue
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.*
 import android.graphics.*
 import android.graphics.drawable.GradientDrawable
@@ -13,6 +14,7 @@ import android.view.*
 import android.widget.*
 import com.merqo.quantivue.capture.CaptureAnalysisService
 import com.merqo.quantivue.core.*
+import com.merqo.quantivue.data.PredictionStore
 import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
@@ -62,6 +64,7 @@ class MainActivity : Activity() {
             timeframeConfirmed = !timeframeConfirmed
             getSharedPreferences("quantivue", MODE_PRIVATE).edit().putBoolean("timeframe_confirmed", timeframeConfirmed).apply()
             timeframeButton.text = if (timeframeConfirmed) "✓ 1M timeframe confirmed" else "Confirm visible chart is 1M"
+            if (serviceStarted) sendServiceCommand(CaptureAnalysisService.ACTION_TIMEFRAME, timeframeConfirmed)
         }
         column.addView(timeframeButton, LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(7) })
 
@@ -79,6 +82,13 @@ class MainActivity : Activity() {
         secondary.addView(overlay, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginTop = dp(7); marginEnd = dp(3) })
         secondary.addView(reset, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginTop = dp(7); marginStart = dp(3) })
         column.addView(secondary)
+
+        val audit = LinearLayout(this).apply { gravity = Gravity.CENTER; weightSum = 2f }
+        val diagnostics = actionButton("DIAGNOSTICS").apply { setOnClickListener { showDiagnostics() } }
+        val history = actionButton("HISTORY").apply { setOnClickListener { showHistory() } }
+        audit.addView(diagnostics, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginTop = dp(7); marginEnd = dp(3) })
+        audit.addView(history, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginTop = dp(7); marginStart = dp(3) })
+        column.addView(audit)
         return root
     }
 
@@ -119,6 +129,40 @@ class MainActivity : Activity() {
         } else Toast.makeText(this, "Overlay permission is already enabled. Start analysis to show it.", Toast.LENGTH_SHORT).show()
     }
 
+    private fun showDiagnostics() {
+        val s = dashboard.snapshot()
+        val text = buildString {
+            append("Capture stage: ").append(s.stage).append('\n')
+            append("ROI confidence: ").append("%.1f%%".format(s.roi * 100)).append('\n')
+            append("Confirmed candles: ").append(s.candles).append('\n')
+            append("Dropped frames: ").append(s.dropped).append('\n')
+            append("Last deep-path latency: ").append(s.latency).append(" ms\n")
+            append("Model: local-statistical-v1 (heuristic baseline)\n")
+            append("Calibration: uncalibrated-none\n")
+            append("Research: INSUFFICIENT REAL DATA\n\n")
+            append(s.error ?: s.gateReason)
+        }
+        AlertDialog.Builder(this).setTitle("Diagnostics").setMessage(text)
+            .setPositiveButton("Close", null).show()
+    }
+
+    private fun showHistory() {
+        val store = PredictionStore(this)
+        val text = try {
+            val rows = store.recent(25)
+            if (rows.isEmpty()) "No local predictions recorded yet." else rows.joinToString("\n\n") { row ->
+                "${row["direction"]} · target ${row["target"]} · CALL ${row["call"]}% / PUT ${row["put"]}%\n" +
+                    "${row["uncertainty"]} · ${row["regime"]} · outcome ${row["actual"]}\n${row["reason"]}"
+            }
+        } catch (_: Throwable) {
+            "History is temporarily unavailable. No live analysis state was changed."
+        } finally {
+            store.close()
+        }
+        AlertDialog.Builder(this).setTitle("Prediction history").setMessage(text)
+            .setPositiveButton("Close", null).show()
+    }
+
     private fun registerUpdates() {
         receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -126,6 +170,7 @@ class MainActivity : Activity() {
                 val stage = intent.getStringExtra("stage") ?: AnalysisStage.IDLE.name
                 val direction = intent.getStringExtra("direction") ?: Direction.NO_TRADE.name
                 val error = intent.getStringExtra("error")
+                serviceStarted = stage != AnalysisStage.IDLE.name && stage != AnalysisStage.ERROR.name
                 dashboard.update(UiState(
                     stage = stage, direction = direction,
                     call = intent.getDoubleExtra("bullishProbability", .5), put = intent.getDoubleExtra("bearishProbability", .5),
@@ -136,8 +181,12 @@ class MainActivity : Activity() {
                     roi = intent.getDoubleExtra("roiConfidence", 0.0), dropped = intent.getLongExtra("framesDropped", 0L), error = error))
                 statusText.text = when (stage) {
                     AnalysisStage.ANALYZING.name, AnalysisStage.CAPTURING.name -> "● CAPTURING"
+                    AnalysisStage.DETECTING_CHART.name, AnalysisStage.ROI_LOST.name,
+                    AnalysisStage.VALIDATING_TIMEFRAME.name, AnalysisStage.BUILDING_CONTEXT.name -> "● DETECTING"
+                    AnalysisStage.STALE_FRAME.name -> "● STALE FRAME"
                     AnalysisStage.PAUSED.name -> "Ⅱ PAUSED"
-                    AnalysisStage.ERROR.name -> "● NEEDS ATTENTION"
+                    AnalysisStage.ERROR.name, AnalysisStage.MODEL_UNAVAILABLE.name,
+                    AnalysisStage.CALIBRATION_UNAVAILABLE.name -> "● NEEDS ATTENTION"
                     else -> "● READY"
                 }
                 statusText.setTextColor(if (stage == AnalysisStage.ERROR.name) Color.rgb(255, 130, 130) else Color.rgb(99, 230, 190))
@@ -170,6 +219,7 @@ class MainActivity : Activity() {
         private var state = UiState()
         private val teal = Color.rgb(99, 230, 190); private val ink = Color.rgb(232, 240, 255); private val muted = Color.rgb(135, 151, 180)
         fun update(value: UiState) { state = value; contentDescription = accessibilitySummary(); invalidate() }
+        fun snapshot(): UiState = state
         fun reset() { state = UiState(); invalidate() }
         fun setError(message: String) { state = state.copy(stage = AnalysisStage.ERROR.name, error = message); invalidate() }
         override fun onDraw(canvas: Canvas) {

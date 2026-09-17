@@ -88,8 +88,11 @@ object ChartRoiDetector {
         val x1 = min(frame.width, current.right + current.width / 12)
         val y1 = min(frame.height, current.bottom + current.height / 12)
         val score = scoreRegion(frame.pixels, frame.width, frame.height, x0, y0, x1 - x0, y1 - y0)
-        val roi = current.copy(left = x0, top = y0, width = x1 - x0, height = y1 - y0,
-            confidence = (current.confidence * .65 + score * .35).coerceIn(0.0, 1.0), detectedAtMillis = frame.capturedAtMillis)
+        // The search window may expand, but the locked ROI must not drift/expand on every frame.
+        val roi = current.copy(
+            confidence = (current.confidence * .65 + score * .35).coerceIn(0.0, 1.0),
+            detectedAtMillis = frame.capturedAtMillis
+        )
         val q = ChartQuality(true, roi.confidence, 1.0 - roi.confidence, estimateBlur(frame, roi), 0.0, false,
             "Timeframe label must be verified")
         return RoiDetection(roi, q)

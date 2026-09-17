@@ -11,7 +11,10 @@ enum class Uncertainty { LOW, MEDIUM, HIGH, UNKNOWN }
 enum class Trend { BULLISH, BEARISH, SIDEWAYS, TRANSITIONAL, UNKNOWN }
 enum class Regime { TREND_UP, TREND_DOWN, RANGE, CHOP, BREAKOUT, POST_BREAKOUT, HIGH_VOLATILITY, LOW_VOLATILITY, TRANSITION, UNKNOWN }
 enum class SignalLifecycle { OBSERVING, SETUP_DETECTED, VALIDATING, CONFIRMED, ACTIVE, EXPIRED, INVALIDATED }
-enum class AnalysisStage { IDLE, CAPTURING, DETECTING_CHART, VALIDATING_TIMEFRAME, BUILDING_CONTEXT, ANALYZING, PAUSED, ERROR }
+enum class AnalysisStage {
+    IDLE, WAITING_FOR_CAPTURE, CAPTURING, DETECTING_CHART, ROI_LOST, VALIDATING_TIMEFRAME,
+    BUILDING_CONTEXT, ANALYZING, STALE_FRAME, PAUSED, MODEL_UNAVAILABLE, CALIBRATION_UNAVAILABLE, ERROR
+}
 enum class DeviceProfile { LOW, BALANCED, PERFORMANCE, MAXIMUM }
 
 data class ChartROI(
@@ -103,6 +106,17 @@ data class StructureFeatures(
     val confidence: Double
 )
 
+data class PriceActionFeatures(
+    val engulfing: String?,
+    val pinBar: String?,
+    val insideBar: Boolean,
+    val outsideBar: Boolean,
+    val indecision: Double,
+    val exhaustion: Double,
+    val directionalScore: Double,
+    val confidence: Double
+)
+
 data class SupportResistanceZone(
     val center: Double,
     val halfWidth: Double,
@@ -175,6 +189,7 @@ data class PredictionContext(
     val chartQuality: ChartQuality,
     val roiConfidence: Double,
     val structure: StructureFeatures,
+    val priceAction: PriceActionFeatures,
     val zones: List<SupportResistanceZone>,
     val momentum: MomentumFeatures,
     val volatility: VolatilityFeatures,
@@ -216,6 +231,12 @@ data class PredictionResult(
     val gateReason: String,
     val inputFingerprint: String
 ) {
+    init {
+        require(bullishProbability in 0.0..1.0 && bearishProbability in 0.0..1.0)
+        require(abs((bullishProbability + bearishProbability) - 1.0) < 1e-9)
+        require(confidence in 0.0..1.0 && uncertaintyScore in 0.0..1.0)
+        require(consensusCall >= 0 && consensusPut >= 0)
+    }
     val isNoTrade: Boolean get() = direction == Direction.NO_TRADE
     val displayedProbability: Int get() = (max(bullishProbability, bearishProbability) * 100.0).toInt()
 }

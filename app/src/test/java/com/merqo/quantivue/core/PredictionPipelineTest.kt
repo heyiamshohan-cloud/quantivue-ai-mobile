@@ -11,7 +11,8 @@ class PredictionPipelineTest {
         val context = PredictionContext(
             (0L..16L).map { candle(it, if (it % 2 == 0) .48 else .52) }, running,
             ChartQuality(true, .9, 0.0, .1, .9, true), .9,
-            StructureFeatures(Trend.SIDEWAYS, emptyList(), null, .1, .2, .8), emptyList(),
+            StructureFeatures(Trend.SIDEWAYS, emptyList(), null, .1, .2, .8),
+            PriceActionFeatures(null, null, false, false, .2, .1, .0, .8), emptyList(),
             MomentumFeatures(.2, .1, .0, .1, .2, .1, .1, .8), VolatilityFeatures(.1, 0.0, .1, 0.0, .1, .8),
             RegimeFeatures(Regime.RANGE, .8, .1), SimilarityFeatures(false, 0, null, null, 0.0, false), 17 * 60_000L
         )
@@ -25,7 +26,8 @@ class PredictionPipelineTest {
             PredictionContext(
                 listOf(candle(0, .5), candle(1, .5), candle(2, .5)), running,
                 ChartQuality(true, .9, 0.0, .1, .9, true), .9,
-                StructureFeatures(Trend.UNKNOWN, emptyList(), null, 0.0, 0.0, .2), emptyList(),
+                StructureFeatures(Trend.UNKNOWN, emptyList(), null, 0.0, 0.0, .2),
+                PriceActionFeatures(null, null, false, false, 1.0, 0.0, .0, .1), emptyList(),
                 MomentumFeatures(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, .1), VolatilityFeatures(0.0, 0.0, 0.0, 0.0, 0.0, .1),
                 RegimeFeatures(Regime.UNKNOWN, .1, .9), SimilarityFeatures(false, 0, null, null, 0.0, false), 130_000
             )
@@ -68,6 +70,48 @@ class PredictionPipelineTest {
         assertEquals(14L, second.running?.index)
         assertEquals(14, second.confirmed.size)
         assertEquals(13L, second.newlyConfirmed?.index)
+    }
+
+    @Test fun similarityRejectsFutureSamples() {
+        val current = FloatArray(3) { 1f }
+        val examples = listOf(
+            SimilarityEngine.HistoricalExample(current, true, Regime.RANGE, sampleTimestamp = 100, targetIndex = 3),
+            SimilarityEngine.HistoricalExample(current, false, Regime.RANGE, sampleTimestamp = 500, targetIndex = 8)
+        )
+        val result = SimilarityEngine.retrieve(current, Regime.RANGE, examples, predictionTimestamp = 200, targetIndex = 5)
+        assertEquals(1, result.sampleCount)
+        assertEquals(1.0, result.bullishRate)
+    }
+
+    @Test fun lifecycleRequiresStableDirectionalEvidence() {
+        val base = PredictionResult(
+            Direction.CALL, .7, .3, .7, Uncertainty.LOW, .2, "MODERATE", Regime.TREND_UP,
+            4, 1, SignalLifecycle.CONFIRMED, emptyList(), emptyList(), emptyList(), emptyList(),
+            "test", "cal", 10, 1, "passed", "fingerprint"
+        )
+        val manager = SignalLifecycleManager(2)
+        assertEquals(Direction.NO_TRADE, manager.apply(base).direction)
+        assertEquals(Direction.CALL, manager.apply(base).direction)
+        assertEquals(SignalLifecycle.ACTIVE, manager.apply(base).lifecycle)
+        assertEquals(Direction.NO_TRADE, manager.apply(base.copy(direction = Direction.NO_TRADE)).direction)
+    }
+
+    @Test fun runningCandleEntersClosingWithoutBecomingConfirmed() {
+        val roi = ChartROI(0, 0, 300, 200, .9, 0)
+        val detected = DetectedCandle(240, 245, 30, 170, 70, 130, true, .9)
+        val tracker = CandleSequenceTracker(1_000)
+        tracker.update(listOf(detected), roi, 0)
+        val state = tracker.update(listOf(detected), roi, 800)
+        assertEquals(CandleState.CLOSING, state.running?.state)
+        assertTrue(state.confirmed.isEmpty())
+    }
+
+    @Test fun calibrationLoaderRejectsIncompatibleArtifacts() {
+        val manifest = CalibrationManifest("cal-v1", "dataset-v1", "different-model", "features-v1",
+            1.0, 0.0, 100, .05, "sha256:abc", true)
+        val artifact = CalibrationArtifactLoader.load(manifest, "local-statistical-v1", "features-v1")
+        assertFalse(artifact.validated)
+        assertEquals("uncalibrated-none", artifact.version)
     }
 
     @Test fun calibrationMetricsAreDataDriven() {

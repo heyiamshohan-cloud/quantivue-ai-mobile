@@ -9,5 +9,5 @@ if [ -x ./gradlew ]; then BUILD=(./gradlew); elif command -v gradle >/dev/null; 
 mkdir -p release
 cp app/build/outputs/apk/debug/app-debug.apk release/QuantivueAI-Mobile-debug.apk
 cp release/QuantivueAI-Mobile-debug.apk release/QuantivueAI-Mobile.apk
-sha256sum release/QuantivueAI-Mobile.apk release/QuantivueAI-Mobile-debug.apk > release/SHA256SUMS.txt
+scripts/package_release.sh
 echo "Debug APK: release/QuantivueAI-Mobile.apk"

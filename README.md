@@ -14,7 +14,7 @@ Quantivue AI Mobile is MERQO's offline-first Android decision-support client for
 * Combines transparent local specialist outputs and records provenance, uncertainty, contradictions, and a causal input fingerprint.
 * Targets `runningCandle.index + 1`: the **next** candle. The target candle is never present in `PredictionContext`.
 * Uses a first-class `NO TRADE` gate for bad quality, uncertain timeframe, insufficient history, disagreement, high uncertainty, or missing validated calibration.
-* Stores prediction audit records locally in SQLite. Frames are not stored by default.
+* Stores session-scoped prediction audit records and later outcomes locally in SQLite; the app exposes diagnostics/history dialogs. Frames are not stored by default.
 
 ## Safety and privacy
 
@@ -34,7 +34,7 @@ gradle bundleRelease
 
 If your checkout has a generated Gradle wrapper, `./gradlew` may be used instead.
 
-Artifacts are copied by `scripts/package_release.sh` when a local Android SDK is available. This Arena environment was audited during implementation and did not contain Java, Gradle, an Android SDK, or an APK builder; therefore no APK is claimed in this checkout. See `release/RELEASE_NOTES.md` for the exact blocker.
+Artifacts are copied by `scripts/package_release.sh` when a local Android SDK is available. This Arena environment has no Java, Gradle, Android SDK, or APK builder; apt mirror and direct toolchain-download attempts were blocked, so no APK is claimed in this checkout. See `release/RELEASE_NOTES.md` and `release/BUILD_INFO.txt` for the exact blocker.
 
 ## First-run workflow
 

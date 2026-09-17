@@ -3,6 +3,7 @@ package com.merqo.quantivue.core
 import java.security.MessageDigest
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** A calibration artifact is deliberately explicit: identity/raw output is not validated calibration. */
 data class CalibrationArtifact(
@@ -11,8 +12,19 @@ data class CalibrationArtifact(
     val intercept: Double,
     val validated: Boolean,
     val sampleCount: Int,
-    val expectedCalibrationError: Double?
+    val expectedCalibrationError: Double?,
+    val datasetVersion: String = "unknown",
+    val modelVersion: String = "unknown",
+    val featureSchemaVersion: String = "unknown",
+    val checksum: String = ""
 ) {
+    init {
+        require(slope.isFinite() && intercept.isFinite())
+        require(sampleCount >= 0)
+        require(!validated || (sampleCount >= 30 && expectedCalibrationError != null)) {
+            "A validated calibration artifact needs provenance and a non-trivial sample count"
+        }
+    }
     fun apply(raw: Double): Double = (raw * slope + intercept).coerceIn(0.001, 0.999)
 }
 
@@ -25,12 +37,71 @@ object ProbabilityCalibrator {
     fun apply(raw: Double, artifact: CalibrationArtifact): Double = artifact.apply(raw)
 }
 
-object SimilarityEngine {
-    data class HistoricalExample(val features: FloatArray, val bullishOutcome: Boolean, val regime: Regime)
+data class CalibrationManifest(
+    val version: String,
+    val datasetVersion: String,
+    val modelVersion: String,
+    val featureSchemaVersion: String,
+    val slope: Double,
+    val intercept: Double,
+    val sampleCount: Int,
+    val expectedCalibrationError: Double,
+    val checksum: String,
+    val validated: Boolean
+)
 
-    fun retrieve(current: FloatArray, currentRegime: Regime, examples: List<HistoricalExample>, k: Int = 20): SimilarityFeatures {
+object CalibrationArtifactLoader {
+    fun load(
+        manifest: CalibrationManifest?, expectedModelVersion: String, expectedFeatureSchemaVersion: String,
+        artifactPayload: ByteArray? = null
+    ): CalibrationArtifact {
+        if (manifest == null || artifactPayload == null || !manifest.validated || manifest.datasetVersion.isBlank() || manifest.checksum.isBlank() ||
+            manifest.modelVersion != expectedModelVersion || manifest.featureSchemaVersion != expectedFeatureSchemaVersion ||
+            manifest.sampleCount < 30 || !manifest.expectedCalibrationError.isFinite() || !checksumMatches(manifest.checksum, artifactPayload)) {
+            return ProbabilityCalibrator.unavailable()
+        }
+        return try {
+            CalibrationArtifact(
+                version = manifest.version, slope = manifest.slope, intercept = manifest.intercept,
+                validated = true, sampleCount = manifest.sampleCount,
+                expectedCalibrationError = manifest.expectedCalibrationError,
+                datasetVersion = manifest.datasetVersion, modelVersion = manifest.modelVersion,
+                featureSchemaVersion = manifest.featureSchemaVersion, checksum = manifest.checksum
+            )
+        } catch (_: IllegalArgumentException) {
+            ProbabilityCalibrator.unavailable()
+        }
+    }
+
+    private fun checksumMatches(expected: String, payload: ByteArray): Boolean {
+        val normalized = expected.substringAfter(':').lowercase()
+        val actual = MessageDigest.getInstance("SHA-256").digest(payload)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return normalized == actual
+    }
+}
+
+object SimilarityEngine {
+    data class HistoricalExample(
+        val features: FloatArray,
+        val bullishOutcome: Boolean,
+        val regime: Regime,
+        val sampleTimestamp: Long = Long.MIN_VALUE,
+        val targetIndex: Long = Long.MIN_VALUE
+    )
+
+    fun retrieve(
+        current: FloatArray,
+        currentRegime: Regime,
+        examples: List<HistoricalExample>,
+        predictionTimestamp: Long = Long.MAX_VALUE,
+        targetIndex: Long = Long.MAX_VALUE,
+        k: Int = 20
+    ): SimilarityFeatures {
         if (examples.isEmpty() || current.isEmpty()) return SimilarityFeatures(false, 0, null, null, 0.0, false)
-        val nearest = examples.asSequence().map { it to cosine(current, it.features) }
+        val causal = examples.asSequence()
+            .filter { it.sampleTimestamp < predictionTimestamp && it.targetIndex < targetIndex }
+        val nearest = causal.map { it to cosine(current, it.features) }
             .filter { it.second >= .55 && (it.first.regime == currentRegime || currentRegime == Regime.UNKNOWN) }
             .sortedByDescending { it.second }.take(k).toList()
         if (nearest.isEmpty()) return SimilarityFeatures(false, 0, null, null, 0.0, false)
@@ -61,6 +132,10 @@ class LocalSpecialistEnsemble {
         outputs += output("structure", trendBull, context.structure.confidence, 1.0 - context.structure.confidence, context.structure.confidence, started)
         val mom = (0.5 + context.momentum.score * .36).coerceIn(.05, .95)
         outputs += output("momentum", mom, context.momentum.confidence, 1.0 - context.momentum.confidence, context.momentum.confidence, started)
+        val action = (0.5 + context.priceAction.directionalScore * .34).coerceIn(.05, .95)
+        outputs += output("price-action-heuristic", action, context.priceAction.confidence,
+            (context.priceAction.indecision * .5 + context.priceAction.exhaustion * .25).coerceIn(0.0, 1.0),
+            context.priceAction.confidence, started)
         val runningBias = when { context.runningCandle.bullish -> .58; context.runningCandle.bearish -> .42; else -> .5 }
         outputs += output("running-price-action", runningBias, context.runningCandle.confidence, .48, context.runningCandle.confidence, started)
         val volPenalty = (context.volatility.spike * .2 + context.volatility.expansion.coerceAtLeast(0.0) * .1).coerceIn(0.0, .25)
@@ -176,6 +251,8 @@ class SignalGate(private val calibration: CalibrationArtifact = ProbabilityCalib
         if (context.structure.trend == Trend.BEARISH) out += Evidence("bearish structure detected", .7, Direction.PUT)
         if (context.momentum.score > .18) out += Evidence("positive momentum", context.momentum.score, Direction.CALL)
         if (context.momentum.score < -.18) out += Evidence("negative momentum", -context.momentum.score, Direction.PUT)
+        if (context.priceAction.engulfing != null) out += Evidence(context.priceAction.engulfing, .58, if (context.priceAction.directionalScore >= 0) Direction.CALL else Direction.PUT)
+        if (context.priceAction.pinBar != null) out += Evidence(context.priceAction.pinBar, .5, if (context.priceAction.directionalScore >= 0) Direction.CALL else Direction.PUT)
         if (context.volatility.expansion > .35) out += Evidence("volatility expanding", context.volatility.expansion, direction)
         if (context.similarity.available) out += Evidence("historical matches available", context.similarity.similarity, direction)
         out += Evidence("${ensemble.outputs.count { it.bullishProbability >= .5 }}/${ensemble.outputs.size} specialists call bullish", .5, if (ensemble.rawBullish >= .5) Direction.CALL else Direction.PUT)
@@ -184,10 +261,16 @@ class SignalGate(private val calibration: CalibrationArtifact = ProbabilityCalib
 
     private fun fingerprint(context: PredictionContext): String {
         val text = buildString {
-            append(context.featureSchemaVersion).append('|').append(context.runningCandle.index).append('|')
-            context.confirmedCandles.takeLast(20).forEach { append(it.open).append(',').append(it.high).append(',').append(it.low).append(',').append(it.close).append(';') }
+            val running = context.runningCandle
+            append(context.featureSchemaVersion).append('|').append(running.index).append('|')
+            append(running.state).append(':')
+            append((running.estimatedOpen * 1000.0).roundToInt()).append(',')
+            append((running.currentPrice * 1000.0).roundToInt()).append(',')
+            append((running.developingHigh * 1000.0).roundToInt()).append(',')
+            append((running.developingLow * 1000.0).roundToInt()).append('|')
+            context.confirmedCandles.takeLast(20).forEach { append((it.open * 1000.0).roundToInt()).append(',').append((it.high * 1000.0).roundToInt()).append(',').append((it.low * 1000.0).roundToInt()).append(',').append((it.close * 1000.0).roundToInt()).append(';') }
         }
-        return MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+        return MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }.take(16)
     }
 }
 
@@ -201,12 +284,16 @@ class AnalysisEngine(private val calibration: CalibrationArtifact = ProbabilityC
     ): PredictionResult {
         CausalGuard.validatePredictionInputs(now, running.index + 1L, confirmed, running)
         val structure = StructureEngine.calculate(confirmed, running)
+        val priceAction = PriceActionEngine.calculate(confirmed, running)
         val zones = SupportResistanceEngine.calculate(confirmed, running)
         val momentum = MomentumEngine.calculate(confirmed, running)
         val volatility = VolatilityEngine.calculate(confirmed)
         val regime = RegimeEngine.calculate(structure, volatility, confirmed)
-        val similarity = SimilarityEngine.retrieve(featureVector(confirmed, running), regime.regime, historicalExamples)
-        val context = PredictionContext(confirmed, running, quality, roiConfidence, structure, zones, momentum, volatility, regime, similarity, now)
+        val similarity = SimilarityEngine.retrieve(
+            featureVector(confirmed, running), regime.regime, historicalExamples,
+            predictionTimestamp = now, targetIndex = running.index + 1L
+        )
+        val context = PredictionContext(confirmed, running, quality, roiConfidence, structure, priceAction, zones, momentum, volatility, regime, similarity, now)
         return gate.evaluate(context, ensemble.infer(context), now)
     }
 

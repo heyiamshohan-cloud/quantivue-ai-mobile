@@ -8,7 +8,7 @@ Quantivue is a single Android application module with a dependency-light native 
 
 `ImageReader -> FrameValidator -> ChartRoiDetector -> CandleDetector -> CandleSequenceTracker -> feature engines -> local specialist ensemble -> gate -> UI/SQLite/overlay`.
 
-The service broadcasts a small summary to the activity; raw frames never cross the activity boundary. SQLite stores prediction audit metadata, not images. The optional overlay uses `TYPE_APPLICATION_OVERLAY` only after the Android user grants the separate permission.
+The service broadcasts a small summary to the activity; raw frames never cross the activity boundary. SQLite stores prediction audit metadata, not images. Every capture run gets a fresh session id so outcomes cannot be attached to a different asset/layout session. The optional overlay uses `TYPE_APPLICATION_OVERLAY` only after the Android user grants the separate permission.
 
 ## Core boundaries
 

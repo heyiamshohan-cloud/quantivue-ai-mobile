@@ -3,7 +3,6 @@ package com.merqo.quantivue.core
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sqrt
 
 class CandleSequenceTracker(private val candlePeriodMillis: Long = 60_000L) {
     private var nextIndex = 0L
@@ -110,6 +109,38 @@ object StructureEngine {
         val continuation = (if (trend == Trend.BULLISH && running.bullish) .8 else if (trend == Trend.BEARISH && running.bearish) .8 else .25)
         return StructureFeatures(trend, labels.takeLast(8), breakout, rejection, continuation,
             (recent.map { it.confidence }.average() * .7 + .3).coerceIn(0.0, 1.0))
+    }
+}
+
+object PriceActionEngine {
+    fun calculate(candles: List<CandleRecord>, running: RunningCandle): PriceActionFeatures {
+        if (candles.size < 2) return PriceActionFeatures(null, null, false, false, 1.0, 0.0, 0.0, .2)
+        val previous = candles[candles.lastIndex - 1]
+        val last = candles.last()
+        val engulfing = when {
+            last.bullish && previous.bearish && last.body > previous.body * 1.05 -> "bullish-engulfing-like"
+            last.bearish && previous.bullish && last.body > previous.body * 1.05 -> "bearish-engulfing-like"
+            else -> null
+        }
+        val pinBar = when {
+            last.lowerWick > last.body * 2.0 && last.bodyRatio < .45 -> "lower-rejection"
+            last.upperWick > last.body * 2.0 && last.bodyRatio < .45 -> "upper-rejection"
+            else -> null
+        }
+        val inside = last.high >= previous.high && last.low <= previous.low // vertical coordinates: visually inside range
+        val outside = last.high <= previous.high && last.low >= previous.low
+        val indecision = (1.0 - last.bodyRatio).coerceIn(0.0, 1.0)
+        val sameDirection = candles.takeLast(4).count { it.directionSign == last.directionSign }
+        val exhaustion = if (sameDirection >= 3 && last.range < candles.takeLast(4).map { it.range }.average() * .7) .75 else .15
+        val patternScore = when {
+            engulfing?.startsWith("bullish") == true || pinBar == "lower-rejection" -> .55
+            engulfing?.startsWith("bearish") == true || pinBar == "upper-rejection" -> -.55
+            else -> 0.0
+        }
+        val runningAdjustment = when { running.bullish -> .12; running.bearish -> -.12; else -> 0.0 }
+        return PriceActionFeatures(engulfing, pinBar, inside, outside, indecision, exhaustion,
+            (patternScore + runningAdjustment).coerceIn(-1.0, 1.0),
+            (last.confidence * previous.confidence).coerceIn(0.0, 1.0))
     }
 }
 

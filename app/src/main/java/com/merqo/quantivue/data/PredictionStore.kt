@@ -6,11 +6,12 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.merqo.quantivue.core.*
 
-class PredictionStore(context: Context) : SQLiteOpenHelper(context, "quantivue.db", null, 1) {
+class PredictionStore(context: Context) : SQLiteOpenHelper(context, "quantivue.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE predictions (
                 prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 target_index INTEGER NOT NULL,
                 direction TEXT NOT NULL,
@@ -34,25 +35,27 @@ class PredictionStore(context: Context) : SQLiteOpenHelper(context, "quantivue.d
         """.trimIndent())
         db.execSQL("CREATE INDEX idx_predictions_time ON predictions(timestamp)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL("ALTER TABLE predictions ADD COLUMN session_id TEXT NOT NULL DEFAULT 'legacy'")
+    }
 
-    fun insertPrediction(result: PredictionResult, quality: ChartQuality, running: RunningCandle, confirmedCount: Int) {
+    fun insertPrediction(sessionId: String, result: PredictionResult, quality: ChartQuality, running: RunningCandle, confirmedCount: Int) {
         val values = ContentValues().apply {
-            put("timestamp", result.timestampMillis); put("target_index", result.targetCandleIndex)
+            put("session_id", sessionId); put("timestamp", System.currentTimeMillis()); put("target_index", result.targetCandleIndex)
             put("direction", result.direction.name); put("bullish_probability", result.bullishProbability)
             put("bearish_probability", result.bearishProbability); put("uncertainty", result.uncertainty.name)
             put("confidence", result.confidence); put("setup_quality", result.setupQuality)
             put("regime", result.regime.name); put("lifecycle", result.lifecycle.name)
             put("gate_reason", result.gateReason); put("model_version", result.modelVersion)
             put("calibration_version", result.calibrationVersion); put("roi_confidence", quality.score)
-            put("confirmed_count", confirmedCount); put("input_fingerprint", result.inputFingerprint)
+            put("confirmed_count", confirmedCount); put("input_fingerprint", "$sessionId:${result.inputFingerprint}")
         }
         writableDatabase.insertWithOnConflict("predictions", null, values, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
-    fun recordOutcome(targetIndex: Long, actual: Direction, actualReturn: Double, timestamp: Long): Int {
-        val v = ContentValues().apply { put("actual_direction", actual.name); put("actual_return", actualReturn); put("outcome_timestamp", timestamp) }
-        return writableDatabase.update("predictions", v, "target_index = ? AND actual_direction IS NULL", arrayOf(targetIndex.toString()))
+    fun recordOutcome(sessionId: String, targetIndex: Long, actual: Direction, actualReturn: Double): Int {
+        val v = ContentValues().apply { put("actual_direction", actual.name); put("actual_return", actualReturn); put("outcome_timestamp", System.currentTimeMillis()) }
+        return writableDatabase.update("predictions", v, "session_id = ? AND target_index = ? AND actual_direction IS NULL", arrayOf(sessionId, targetIndex.toString()))
     }
 
     fun recent(limit: Int = 100): List<Map<String, String>> {

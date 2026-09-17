@@ -18,9 +18,10 @@ object CausalGuard {
         historicalExamples: List<TemporalExample> = emptyList()
     ) {
         require(running.index < targetIndex) { "Running candle must precede target candle" }
+        require(running.startedAtMillis <= predictionTimestamp) { "Running candle begins in the future" }
         require(confirmed.none { it.index >= targetIndex }) { "Target/future candle leaked into confirmed history" }
         require(confirmed.none { it.startedAtMillis > predictionTimestamp }) { "Future confirmed candle leaked into features" }
-        require(historicalExamples.none { it.targetIndex >= targetIndex && it.timestamp >= predictionTimestamp }) {
+        require(historicalExamples.none { it.targetIndex >= targetIndex || it.timestamp >= predictionTimestamp }) {
             "Future similarity example leaked into prediction"
         }
     }

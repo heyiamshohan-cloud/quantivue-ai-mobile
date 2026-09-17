@@ -7,7 +7,7 @@
 * Gradle 8.9 (or the checked-in wrapper when one is added by a release environment)
 * Android Gradle Plugin 8.7.3 / Kotlin 2.0.21
 
-The repository's container audit found none of JDK, Gradle, Android SDK, or `adb`; therefore the agent could not produce an APK here. This is an environment blocker, not a claimed build success.
+The repository's container audit found none of JDK, Gradle, Android SDK, or `adb`. `sudo apt-get update` was attempted but Debian mirrors were unreachable, and direct JDK/Gradle downloads were blocked at TLS/release-asset egress. Therefore the agent could not produce an APK here. This is an environment blocker, not a claimed build success.
 
 ## Commands
 
