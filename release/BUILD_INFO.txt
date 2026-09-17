@@ -1,14 +1,13 @@
 Application: Quantivue AI Mobile
 Version: 1.0.0
 Git commit: not generated; no APK/AAB exists in this environment
-Build variant: not generated
-JDK: unavailable in agent container
-Gradle: unavailable in agent container
+Build timestamp UTC: not generated
+Build variant: no artifact
+JDK: unavailable
+Gradle: unavailable
 Android Gradle Plugin: 8.7.3
 Compile SDK: 35
 Target SDK: 35
-Build timestamp UTC: not generated
-APK filename: none
-SHA256: none
 Signing: not generated
-Blocker: agent container has no JDK, Gradle, Android SDK, or Android build tools. scripts/package_release.sh writes actual values after a successful build.
+Artifacts and SHA256:
+# No checksums generated: no APK/AAB artifact exists.

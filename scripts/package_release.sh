@@ -24,11 +24,18 @@ jdk_version="unavailable"
 if command -v java >/dev/null 2>&1; then jdk_version="$(java -version 2>&1 | head -1)"; fi
 gradle_version="unavailable"
 if command -v gradle >/dev/null 2>&1; then gradle_version="$(gradle --version 2>/dev/null | awk '/Gradle / {print $2; exit}')"; fi
+if [ -f release/QuantivueAI-Mobile.apk ] || [ -f release/QuantivueAI-Mobile-debug.apk ] || [ -f release/QuantivueAI-Mobile.aab ]; then
+  build_commit="$(git rev-parse HEAD 2>/dev/null || echo unavailable)"
+  build_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+else
+  build_commit="not generated; no APK/AAB exists in this environment"
+  build_timestamp="not generated"
+fi
 {
   echo "Application: Quantivue AI Mobile"
   echo "Version: 1.0.0"
-  echo "Git commit: $(git rev-parse HEAD 2>/dev/null || echo unavailable)"
-  echo "Build timestamp UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "Git commit: $build_commit"
+  echo "Build timestamp UTC: $build_timestamp"
   if [ -f app/build/outputs/apk/release/app-release.apk ] || [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
     echo "Build variant: release APK (signing state must be inspected)"
   elif [ -f release/QuantivueAI-Mobile-debug.apk ]; then
