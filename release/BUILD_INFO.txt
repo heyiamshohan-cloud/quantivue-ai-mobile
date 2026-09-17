@@ -1,0 +1,13 @@
+Application: Quantivue AI Mobile
+Version: 1.0.0
+Git commit: not generated; no APK/AAB exists in this environment
+Build timestamp UTC: not generated
+Build variant: no artifact
+JDK: unavailable
+Gradle: unavailable
+Android Gradle Plugin: 8.7.3
+Compile SDK: 35
+Target SDK: 35
+Signing: not generated
+Artifacts and SHA256:
+# No checksums generated: no APK/AAB artifact exists.

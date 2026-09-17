@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Quantivue" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#09101F</item>
+        <item name="android:navigationBarColor">#09101F</item>
+        <item name="android:colorAccent">#63E6BE</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>
